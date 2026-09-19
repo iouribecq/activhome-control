@@ -1,4 +1,8 @@
-// Activhome Device Info - v0.3.1
+// Activhome Device Info - v0.3.2
+//
+// v0.3.2
+// - Validation de l'éditeur visuel natif Home Assistant
+// - Formulaire : Nom, Appareil, Thème
 //
 // v0.3.1
 // - FIX: remplacement de l'éditeur personnalisé par le formulaire natif Home Assistant
@@ -681,5 +685,5 @@ if (
 // ===========================================================
 
 console.info(
-  "[Activhome Device Info] v0.3.1 chargé"
+  "[Activhome Device Info] v0.3.2 chargé"
 );
