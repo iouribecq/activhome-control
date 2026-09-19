@@ -1,4 +1,8 @@
-// Activhome Device Info - v0.3.0
+// Activhome Device Info - v0.3.1
+//
+// v0.3.1
+// - FIX: remplacement de l'éditeur personnalisé par le formulaire natif Home Assistant
+// - Sélecteurs natifs : nom, appareil et thème
 //
 // v0.3.0
 // - Éditeur visuel : nom, appareil et thème
@@ -25,6 +29,35 @@
 // theme: Tr40_pl20blc_ic32_coverJaune
 
 class ActivhomeDeviceInfo extends HTMLElement {
+
+  static getConfigForm() {
+    return {
+      schema: [
+        {
+          name: "name",
+          selector: { text: {} },
+        },
+        {
+          name: "device",
+          required: true,
+          selector: { device: {} },
+        },
+        {
+          name: "theme",
+          selector: { theme: { include_default: true } },
+        },
+      ],
+      computeLabel: (schema) => {
+        const labels = {
+          name: "Nom",
+          device: "Appareil",
+          theme: "Thème",
+        };
+
+        return labels[schema.name] || schema.name;
+      },
+    };
+  }
 
   constructor() {
     super();
@@ -607,72 +640,8 @@ class ActivhomeDeviceInfo extends HTMLElement {
 }
 
 // ===========================================================
-// ÉDITEUR VISUEL
-// ===========================================================
-
-class ActivhomeDeviceInfoEditor extends HTMLElement {
-  constructor() {
-    super();
-    this.attachShadow({ mode: "open" });
-    this._config = {};
-    this._hass = null;
-  }
-
-  setConfig(config) { this._config = { ...config }; this.render(); }
-  set hass(hass) { this._hass = hass; this.render(); }
-
-  _changed(config) {
-    this._config = config;
-    this.dispatchEvent(new CustomEvent("config-changed", { detail: { config }, bubbles: true, composed: true }));
-  }
-
-  _set(key, value) {
-    const config = { ...this._config };
-    if (value === "") delete config[key]; else config[key] = value;
-    this._changed(config);
-  }
-
-  async render() {
-    if (!this._hass) return;
-    let devices = [];
-    try { devices = await this._hass.callWS({ type: "config/device_registry/list" }); } catch (e) {}
-    const themes = Object.keys(this._hass?.themes?.themes || {}).sort((a,b) => a.localeCompare(b,"fr"));
-    const esc = (v) => String(v ?? "").replaceAll("&","&amp;").replaceAll('"',"&quot;").replaceAll("<","&lt;").replaceAll(">","&gt;");
-    const deviceOptions = devices.map(d => ({ id:d.id, name:d.name_by_user || d.name || d.model || d.id })).sort((a,b)=>a.name.localeCompare(b.name,"fr")).map(d => `<option value="${esc(d.id)}" ${d.id===this._config.device?"selected":""}>${esc(d.name)}</option>`).join("");
-    const themeOptions = themes.map(t => `<option value="${esc(t)}" ${t===this._config.theme?"selected":""}>${esc(t)}</option>`).join("");
-
-    this.shadowRoot.innerHTML = `
-      <style>
-        :host{display:block}.editor{display:grid;gap:16px}label{display:grid;gap:6px;color:var(--primary-text-color);font-size:14px}
-        input,select{box-sizing:border-box;width:100%;min-height:48px;padding:0 12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--card-background-color);color:var(--primary-text-color);font:inherit}
-      </style>
-      <div class="editor">
-        <label>Nom<input id="name" type="text" value="${esc(this._config.name || "")}" placeholder="Appareil Companion"></label>
-        <label>Appareil<select id="device"><option value="">Sélectionner un appareil</option>${deviceOptions}</select></label>
-        <label>Thème<select id="theme"><option value="">Thème Home Assistant</option>${themeOptions}</select></label>
-      </div>`;
-
-    this.shadowRoot.querySelector("#name")?.addEventListener("input", e => this._set("name", e.target.value));
-    this.shadowRoot.querySelector("#theme")?.addEventListener("change", e => this._set("theme", e.target.value));
-    this.shadowRoot.querySelector("#device")?.addEventListener("change", e => {
-      const config = { ...this._config, device: e.target.value };
-      delete config.battery; delete config.battery_state; delete config.connection; delete config.ssid;
-      this._changed(config);
-    });
-  }
-}
-
-// ===========================================================
 // ENREGISTREMENT
 // ===========================================================
-
-if (!customElements.get("activhome-device-info-editor")) {
-  customElements.define("activhome-device-info-editor", ActivhomeDeviceInfoEditor);
-}
-
-ActivhomeDeviceInfo.getConfigElement = function () {
-  return document.createElement("activhome-device-info-editor");
-};
 
 if (
   !customElements.get(
@@ -712,5 +681,5 @@ if (
 // ===========================================================
 
 console.info(
-  "[Activhome Device Info] v0.3.0 chargé"
+  "[Activhome Device Info] v0.3.1 chargé"
 );
