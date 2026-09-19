@@ -1,4 +1,9 @@
-// Activhome Device Info - v0.2.0
+// Activhome Device Info - v0.3.0
+//
+// v0.3.0
+// - Éditeur visuel : nom, appareil et thème
+// - Détection automatique des capteurs Companion
+// - Compatibilité avec les configurations v0.2.0
 //
 // v0.2.0
 // - Suppression du bouton "Actualiser les capteurs"
@@ -39,20 +44,10 @@ class ActivhomeDeviceInfo extends HTMLElement {
       throw new Error("Configuration manquante");
     }
 
-    if (!config.battery) {
-      throw new Error("Entité batterie manquante");
-    }
+    const legacyComplete = config.battery && config.battery_state && config.connection && config.ssid;
 
-    if (!config.battery_state) {
-      throw new Error("Entité état de charge manquante");
-    }
-
-    if (!config.connection) {
-      throw new Error("Entité connexion manquante");
-    }
-
-    if (!config.ssid) {
-      throw new Error("Entité SSID manquante");
+    if (!config.device && !legacyComplete) {
+      throw new Error("Sélectionnez un appareil Companion ou renseignez les quatre entités");
     }
 
     this._config = {
@@ -68,11 +63,45 @@ class ActivhomeDeviceInfo extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    this.resolveDeviceEntities();
     this.render();
   }
 
   getCardSize() {
     return 2;
+  }
+
+  // =========================================================
+  // APPAREIL COMPANION
+  // =========================================================
+
+  async resolveDeviceEntities() {
+    const deviceId = this._config?.device;
+    if (!deviceId || !this._hass || this._resolvedDeviceId === deviceId) return;
+    this._resolvedDeviceId = deviceId;
+
+    try {
+      const entities = await this._hass.callWS({ type: "config/entity_registry/list" });
+      const list = entities.filter((e) => e.device_id === deviceId && !e.disabled_by);
+      const find = (...keys) => {
+        const e = list.find((x) => {
+          const text = `${x.entity_id || ""} ${x.original_name || ""} ${x.name || ""}`.toLowerCase();
+          return keys.some((k) => text.includes(k));
+        });
+        return e?.entity_id || null;
+      };
+
+      this._config = {
+        ...this._config,
+        battery: this._config.battery || find("battery_level", "battery level", "niveau de batterie"),
+        battery_state: this._config.battery_state || find("battery_state", "battery state", "état de la batterie"),
+        connection: this._config.connection || find("connection_type", "connection type", "type de connexion"),
+        ssid: this._config.ssid || find("_ssid", " ssid"),
+      };
+      this.render();
+    } catch (error) {
+      console.error("[Activhome Device Info] Lecture du registre impossible :", error);
+    }
   }
 
   // =========================================================
@@ -578,8 +607,72 @@ class ActivhomeDeviceInfo extends HTMLElement {
 }
 
 // ===========================================================
+// ÉDITEUR VISUEL
+// ===========================================================
+
+class ActivhomeDeviceInfoEditor extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._config = {};
+    this._hass = null;
+  }
+
+  setConfig(config) { this._config = { ...config }; this.render(); }
+  set hass(hass) { this._hass = hass; this.render(); }
+
+  _changed(config) {
+    this._config = config;
+    this.dispatchEvent(new CustomEvent("config-changed", { detail: { config }, bubbles: true, composed: true }));
+  }
+
+  _set(key, value) {
+    const config = { ...this._config };
+    if (value === "") delete config[key]; else config[key] = value;
+    this._changed(config);
+  }
+
+  async render() {
+    if (!this._hass) return;
+    let devices = [];
+    try { devices = await this._hass.callWS({ type: "config/device_registry/list" }); } catch (e) {}
+    const themes = Object.keys(this._hass?.themes?.themes || {}).sort((a,b) => a.localeCompare(b,"fr"));
+    const esc = (v) => String(v ?? "").replaceAll("&","&amp;").replaceAll('"',"&quot;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+    const deviceOptions = devices.map(d => ({ id:d.id, name:d.name_by_user || d.name || d.model || d.id })).sort((a,b)=>a.name.localeCompare(b.name,"fr")).map(d => `<option value="${esc(d.id)}" ${d.id===this._config.device?"selected":""}>${esc(d.name)}</option>`).join("");
+    const themeOptions = themes.map(t => `<option value="${esc(t)}" ${t===this._config.theme?"selected":""}>${esc(t)}</option>`).join("");
+
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host{display:block}.editor{display:grid;gap:16px}label{display:grid;gap:6px;color:var(--primary-text-color);font-size:14px}
+        input,select{box-sizing:border-box;width:100%;min-height:48px;padding:0 12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--card-background-color);color:var(--primary-text-color);font:inherit}
+      </style>
+      <div class="editor">
+        <label>Nom<input id="name" type="text" value="${esc(this._config.name || "")}" placeholder="Appareil Companion"></label>
+        <label>Appareil<select id="device"><option value="">Sélectionner un appareil</option>${deviceOptions}</select></label>
+        <label>Thème<select id="theme"><option value="">Thème Home Assistant</option>${themeOptions}</select></label>
+      </div>`;
+
+    this.shadowRoot.querySelector("#name")?.addEventListener("input", e => this._set("name", e.target.value));
+    this.shadowRoot.querySelector("#theme")?.addEventListener("change", e => this._set("theme", e.target.value));
+    this.shadowRoot.querySelector("#device")?.addEventListener("change", e => {
+      const config = { ...this._config, device: e.target.value };
+      delete config.battery; delete config.battery_state; delete config.connection; delete config.ssid;
+      this._changed(config);
+    });
+  }
+}
+
+// ===========================================================
 // ENREGISTREMENT
 // ===========================================================
+
+if (!customElements.get("activhome-device-info-editor")) {
+  customElements.define("activhome-device-info-editor", ActivhomeDeviceInfoEditor);
+}
+
+ActivhomeDeviceInfo.getConfigElement = function () {
+  return document.createElement("activhome-device-info-editor");
+};
 
 if (
   !customElements.get(
@@ -619,5 +712,5 @@ if (
 // ===========================================================
 
 console.info(
-  "[Activhome Device Info] v0.2.0 chargé"
+  "[Activhome Device Info] v0.3.0 chargé"
 );
